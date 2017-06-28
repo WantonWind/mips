@@ -4,6 +4,8 @@
 #include<Functional>
 
 const int INF = 0xffffffff;
+const int SHF = 0x0000ffff;
+const int CHF = 0x000000ff;
 typedef long long ll;
 
 using namespace std;
@@ -22,7 +24,7 @@ int align(int a, int b){
 	}
 	a += c;
 	return a;
-}
+}						//not for dtp, maybe need further develop
 
 void ascii_str(const string& s){
 	for(int i = 0; i < s.size(); ++i) data[dtp++] = s[i];
@@ -34,10 +36,28 @@ void asciiz_str(const string& s){
 }
 
 void byte(int n){
-	for(int i = 0; i < n; ++i) data[dtp++] = vector[i];
+	for(int i = 0; i < n; ++i) data[dtp++] = vector[i] & CHF;
 }
 
+void half(int n){
+	for(int i = 0; i < n; ++i){
+		data[dtp++] = (vector[i] >> 8) & CHF;
+		data[dtp++] = vector[i] & CHF;
+	}
+}
 
+void word(int n){
+	for(int i = 0; i < n; ++i){
+		data[dtp++] = (vector[i] >> 24) & CHF;
+		data[dtp++] = (vector[i] >> 16) & CHF;
+		data[dtp++] = (vector[i] >> 8) & CHF;
+		data[dtp++] = vector[i] & CHF;
+	}
+}
+
+void space(int n){
+	dtp += n;
+}
 //function for calculator and controler
 pair<int,int> add(ll a, ll b){
 	return pair<int,int>((a + b) & INF, 0);
