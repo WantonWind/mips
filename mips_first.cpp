@@ -270,7 +270,17 @@ public:
 };
 
 class load : public regulator{
-	
+private:
+	int ans;
+	bool prepare(){
+		if()
+	}
+public:
+	load(const ins& ex):regualtor(ex){}
+	int console(){
+		
+	}
+	bool is_controlor(){ return false; }
 };
 
 class store : public regulator{
@@ -319,9 +329,7 @@ private:
 			copied = true;		
 		}
 		if(copied){
-			if(!mem_occupied && !control_hazard 
-				&& !reg_occupied[copy.rs] 
-				&& copy.rt == -1 || !reg_occupied[copy.rt]){
+			if(!mem_occupied && !control_hazard){  //delete reg_occupied
 				push_regulator(copy);
 				++nxt;
 				copied = false;
