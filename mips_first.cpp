@@ -29,10 +29,10 @@ bool mem_occupied;			//mem is occupied
 bool reg_occupied[34];		//reg is occupied
 bool control_hazard;		//control hazard has appeared.
 
-vector<function> op_to_func;	//mapping from op to function
-map<int,function> v0_to_func;	//mapping from v0 to function
-map<string,int> rn_to_rp;		//mapping from name of register to place of register
-map<int,int> la_to_r;			//mapping from label to row of ins
+vector<function<pair<int,int>(ll,ll)>> op_to_func;	//mapping from op to function
+map<int,function<int(int,int)>> v0_to_func;			//mapping from v0 to function
+map<string,int> rn_to_rp;			//mapping from name of register to place of register
+map<int,int> la_to_r;				//mapping from label to row of ins
 
 //function for preprocess
 void align(int n){
@@ -55,22 +55,22 @@ void asciiz_str(const string& s){
 }
 
 void byte(int n){
-	for(int i = 0; i < n; ++i) data[dtp++] = vector[i] & CHF;
+	for(int i = 0; i < n; ++i) data[dtp++] = buffer[i] & CHF;
 }
 
 void half(int n){
 	for(int i = 0; i < n; ++i){
-		data[dtp++] = (vector[i] >> 8) & CHF;
-		data[dtp++] = vector[i] & CHF;
+		data[dtp++] = (buffer[i] >> 8) & CHF;
+		data[dtp++] = buffer[i] & CHF;
 	}
 }
 
 void word(int n){
 	for(int i = 0; i < n; ++i){
-		data[dtp++] = (vector[i] >> 24) & CHF;
-		data[dtp++] = (vector[i] >> 16) & CHF;
-		data[dtp++] = (vector[i] >> 8) & CHF;
-		data[dtp++] = vector[i] & CHF;
+		data[dtp++] = (buffer[i] >> 24) & CHF;
+		data[dtp++] = (buffer[i] >> 16) & CHF;
+		data[dtp++] = (buffer[i] >> 8) & CHF;
+		data[dtp++] = buffer[i] & CHF;
 	}
 }
 
@@ -151,19 +151,20 @@ int get_string(int a, int b){
 }
 
 //class ins used to store instruction briefly
-class ins{
-private:
+struct ins{
 	int op;		//操作类型+功能
 	int rs;		//第一个操作数的寄存器地址
 	int rt;		//第二个操作数的寄存器地址（当第二个数不存在或者为立即数的时候默认为-1）
 	int rd;		//结果寄存器地址（-1代表low和high）
-	ll sc;		//位移量/立即数/label序号  //??? why use ll
-public:
+	int sc;		//位移量/立即数   //??? why use ll
+	int lp;		//label 序号
+
+	ins(){}
 	ins(string ex){
 		// to do
 	}
 	//copy constructor is implicitly called.
-}
+};
 
 //class for processing in the pipelining. 
 class regulator{
@@ -173,13 +174,13 @@ protected:
 public:
 	regulator(ins ex):ii(ex),clock(1){}
 	int stage(){ return clock; }
-	virtual bool console() = 0;
+	virtual int console() = 0;
 	virtual bool is_controlor() = 0;
-}
+};
 
 class calculator : public regulator{
 private:
-	function calc;
+	function<pair<int,int>(ll,ll)> calc;
 	int A;
 	int B;
 	pair<int,int> ans;
@@ -188,7 +189,7 @@ private:
 		if(!reg_occupied[ii.rs] && ii.rt == -1 || !reg_occupied[ii.rt]){
 			calc = op_to_func[ii.op];
 			A = reg[ii.rs];
-			if(ii.rt == -1) B = sc;
+			if(ii.rt == -1) B = ii.sc;
 			else B = reg[ii.rt];
 			return true;
 		}
@@ -208,39 +209,85 @@ private:
 		else reg[ii.rd] = ans.first;
 	}
 public:
-	calculator(const ins& ex):regulator(ins){}
+	calculator(const ins& ex):regulator(ex){}
 	int console(){
 		int suc = true;
 		if(stage() == 2) suc = prepare();
-		if(stage() == 3)) execute();
+		if(stage() == 3) execute();
 		if(stage() == 4) suc = -1;
 		if(stage() == 5) write_back();
 		if(suc) ++clock;
 		return suc;
 	}
 	bool is_controlor(){ return false; }
-}
+};
 
 class controlor : public regulator{
 private:
-	function cont;
+	function<pair<int,int>(ll,ll)> calc;
 	int A;
 	int B;
 	bool ans;
 	
 	bool prepare(){
-		if(!reg_occupied[ii.rs] && ii.rt == -1 || !reg_occupied[ii.rt]){
-			calc = op_to_func[ii.op];
-			A = reg[ii.rs];
-			if(ii.rt == -1) B = sc;
-			else B = reg[ii.rt];
-			return true;
+		if(ii.op <= 36){
+			if(!reg_occupied[ii.rs] && ii.rt == -1 || !reg_occupied[ii.rt]){
+				calc = op_to_func[ii.op];
+				A = reg[ii.rs];
+				if(ii.rt == -1) B = 0;
+				else B = reg[ii.rt];
+				return true;
+			}
+			return false;				
 		}
-		else return false;		
-	}		//need polish
+		else if(ii.op == 39 || ii.op == 41)	ii.lp = reg[ii.rs];
+		A = B = true;
+		return true;
+	}		//different from that of calculator
+	
+	void execute(){
+		ans = calc(A,B).first;
+	}
+	
+	void write_back(){
+		if(ans){
+			if(ii.op == 40 || ii.op == 41) reg[31] = nxt;
+			nxt = ii.lp;		
+		}	
+	}
 public:
 	controlor(const ins& ex):regulator(ex){}
-}
+	int console(){
+		int suc = true;
+		if(stage() == 2) suc = prepare();
+		if(stage() == 3) execute();
+		if(stage() == 4) suc = -1;
+		if(stage() == 5) write_back();
+		if(suc) ++clock;
+		return suc;
+	}
+	bool is_controlor(){ return true; }
+};
+
+class load : public regulator{
+	
+};
+
+class store : public regulator{
+	
+};
+
+class mover : public regulator{
+	
+};
+
+class nop : public regulator{
+	
+};
+
+class syscall : public regualtor{
+	
+};
 
 //pipelining
 class pipeline{
@@ -285,7 +332,7 @@ private:
 	
 	void scan(){
 		mem_occupied = false;
-		for(deque::iterator it = que.begin(); it != que.end(); ++it){
+		for(deque<regulator*>::iterator it = que.begin(); it != que.end(); ++it){
 			int rec = it->console();
 			if(!rec) return;
 			if(it->stage() == 4 && rec != -1) mem_occupied = true;
@@ -301,4 +348,4 @@ public:
 	void console(){
 		while(nxt < instraction.size() || !que.empty()) scan();
 	}
-}
+};
