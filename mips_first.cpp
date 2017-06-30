@@ -1,4 +1,5 @@
 #include<iostream>
+#include<fstream>
 #include<string>
 #include<map>
 #include<vector>
@@ -25,6 +26,7 @@ int reg[34];				//place to store register
 char data[1 << 9];			//place to store data
 int dtp; 					//point to data
 int nxt;					//point to next instraction
+int label_num;				//total num of labels
 vector<ins> instraction;	//place to store instraction
 vector<char> buffer;		//used to store temprary byte
 
@@ -33,9 +35,11 @@ bool reg_occupied[34];		//reg is occupied
 bool control_hazard;		//control hazard has appeared.
 
 vector<function<pair<int,int>(ll,ll)>> op_to_func;	//mapping from op to function
-map<int,function<int(int,int)>> v0_to_func;			//mapping from v0 to function
 map<string,int> rn_to_rp;			//mapping from name of register to place of register
+map<string,int> lb_to_la;			//mapping from 
+map<pair<string,int>,int> in_to_op;			//mapping from name of instraction and num to op;
 map<int,int> la_to_r;				//mapping from label to row of ins
+//map<int,function<int(int,int)>> v0_to_func;			//mapping from v0 to function
 
 //function for preprocess
 void align(int n){
@@ -95,7 +99,7 @@ pair<int,int> mul(ll a, ll b){
 	return pair<int,int>((t >> 32) & INF, t & INF);
 }
 
-pair<int,int> div(ll a, ll b){
+pair<int,int> divv(ll a, ll b){
 	return pair<int,int>((a % b) & INF, (a / b) & INF);
 }
 
@@ -163,9 +167,7 @@ struct ins{
 	int lp;		//label 序号
 
 	ins(){}		//rs rs -1??
-	ins(string ex){
-		// to do
-	}
+	ins(int op, int rs, int rt, int rd, int sc, int lp):op(op),rs(rs),rt(rt),rd(rd),sc(sc),lp(lp){}
 	//copy constructor is implicitly called.
 };
 
@@ -217,7 +219,8 @@ private:
 			reg_occupied[hi] = false;
 		}
 		else{
-			reg[ii.rd] = ans.first;
+			if(ii.op == 6 || ii.op == 16) reg[ii.rd] = ans.second;
+			else reg[ii.rd] = ans.first;
 			reg_occupied[ii.rd] = false;
 		}
 	}
@@ -542,4 +545,295 @@ public:
 	void console(){
 		while(nxt < instraction.size() || !que.empty()) scan();
 	}
+};
+
+//init
+void op_to_func_init(){
+	op_to_func.resize(42);
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(add));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sub));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(mul));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(divv));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(xxor));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(neg));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(divv));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(mul));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(divv));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(add));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(add));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sub));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(mul));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(divv));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(xxor));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(neg));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(divv));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(mul));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(divv));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sge));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sgt));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sle));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(slt));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sne));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sne));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sge));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sle));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sgt));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(slt));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sne));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sgt));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sle));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sgt));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(slt));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+	op_to_func.push_back(function<pair<int,int>(ll,ll)>(seq));
+}
+
+void rn_to_rp_init(){
+	rn_to_rp.insert(pair<string,int>("$zero",0));
+	rn_to_rp.insert(pair<string,int>("$at",1));
+	rn_to_rp.insert(pair<string,int>("$v0",2));
+	rn_to_rp.insert(pair<string,int>("$v1",3));
+	rn_to_rp.insert(pair<string,int>("$a0",4));
+	rn_to_rp.insert(pair<string,int>("$a1",5));
+	rn_to_rp.insert(pair<string,int>("$a2",6));
+	rn_to_rp.insert(pair<string,int>("$a3",7));
+	rn_to_rp.insert(pair<string,int>("$t0",8));
+	rn_to_rp.insert(pair<string,int>("$t1",9));
+	rn_to_rp.insert(pair<string,int>("$t2",10));
+	rn_to_rp.insert(pair<string,int>("$t3",11));
+	rn_to_rp.insert(pair<string,int>("$t4",12));
+	rn_to_rp.insert(pair<string,int>("$t5",13));
+	rn_to_rp.insert(pair<string,int>("$t6",14));
+	rn_to_rp.insert(pair<string,int>("$t7",15));
+	rn_to_rp.insert(pair<string,int>("$s0",16));
+	rn_to_rp.insert(pair<string,int>("$s1",17));
+	rn_to_rp.insert(pair<string,int>("$s2",18));
+	rn_to_rp.insert(pair<string,int>("$s3",19));
+	rn_to_rp.insert(pair<string,int>("$s4",20));
+	rn_to_rp.insert(pair<string,int>("$s5",21));
+	rn_to_rp.insert(pair<string,int>("$s6",22));
+	rn_to_rp.insert(pair<string,int>("$s7",23));
+	rn_to_rp.insert(pair<string,int>("$t8",24));
+	rn_to_rp.insert(pair<string,int>("$t9",25));
+	rn_to_rp.insert(pair<string,int>("$k0",26));
+	rn_to_rp.insert(pair<string,int>("$k1",27));
+	rn_to_rp.insert(pair<string,int>("$gp",28));
+	rn_to_rp.insert(pair<string,int>("$sp",29));
+	rn_to_rp.insert(pair<string,int>("$s8",30));
+	rn_to_rp.insert(pair<string,int>("$fp",30));
+	rn_to_rp.insert(pair<string,int>("$ra",31));
+
+	rn_to_rp.insert(pair<string,int>("$0",0));
+	rn_to_rp.insert(pair<string,int>("$1",1));
+	rn_to_rp.insert(pair<string,int>("$2",2));
+	rn_to_rp.insert(pair<string,int>("$3",3));
+	rn_to_rp.insert(pair<string,int>("$4",4));
+	rn_to_rp.insert(pair<string,int>("$5",5));
+	rn_to_rp.insert(pair<string,int>("$6",6));
+	rn_to_rp.insert(pair<string,int>("$7",7));
+	rn_to_rp.insert(pair<string,int>("$8",8));
+	rn_to_rp.insert(pair<string,int>("$9",9));
+	rn_to_rp.insert(pair<string,int>("$10",10));
+	rn_to_rp.insert(pair<string,int>("$11",11));
+	rn_to_rp.insert(pair<string,int>("$12",12));
+	rn_to_rp.insert(pair<string,int>("$13",13));
+	rn_to_rp.insert(pair<string,int>("$14",14));
+	rn_to_rp.insert(pair<string,int>("$15",15));
+	rn_to_rp.insert(pair<string,int>("$16",16));
+	rn_to_rp.insert(pair<string,int>("$17",17));
+	rn_to_rp.insert(pair<string,int>("$18",18));
+	rn_to_rp.insert(pair<string,int>("$19",19));
+	rn_to_rp.insert(pair<string,int>("$20",20));
+	rn_to_rp.insert(pair<string,int>("$21",21));
+	rn_to_rp.insert(pair<string,int>("$22",22));
+	rn_to_rp.insert(pair<string,int>("$23",23));
+	rn_to_rp.insert(pair<string,int>("$24",24));
+	rn_to_rp.insert(pair<string,int>("$25",25));
+	rn_to_rp.insert(pair<string,int>("$26",26));
+	rn_to_rp.insert(pair<string,int>("$27",27));
+	rn_to_rp.insert(pair<string,int>("$28",28));
+	rn_to_rp.insert(pair<string,int>("$29",29));
+	rn_to_rp.insert(pair<string,int>("$30",30));
+	rn_to_rp.insert(pair<string,int>("$31",31));
+}
+
+void in_to_op_init(){
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("add",3),0));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sub",3),1));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mul",3),3));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("xor",3),4));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("neg",2),5));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("rem",3),6));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mul",2),7));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("div",2),5));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("addu",3),9));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("addiu",3),10));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("subu",3),11));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mulu",3),12));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("divu",3),13));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("xoru",3),14));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("negu",2),15));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("remu",3),16));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mulu",2),17));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("divu",2),18));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("seq",3),19));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sge",3),20));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sgt",3),21));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sle",3),22));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("slt",3),23));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sne",3),24));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("beq",3),25));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("bne",3),26));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("bge",3),27));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("ble",3),28));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("bgt",3),29));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("blt",3),30));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("beqz",2),31));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("bnez",2),32));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("bgez",2),33));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("blez",2),34));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("bgtz",2),35));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("bltz",2),36));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("b",1),37));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("j",1),38));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("jr",1),39));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("jal",1),40));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("jalr",1),41));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("la",2),42));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("lb",2),43));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("lh",2),44));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("lw",2),45));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sb",2),46));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sh",2),47));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sw",2),48));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("la",3),42));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("lb",3),43));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("lh",3),44));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("lw",3),45));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sb",3),46));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sh",3),47));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("sw",3),48));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("move",2),49));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("li",2),50));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mfhi",1),51));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mflo",1),52));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("nop",0),53));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("syacall",0),54));
+}
+//used to read in files
+int string_to_int(const string& s){
+	int ans = 0;
+	for(int i = 0; i < s.size(); ++i){
+		ans *= 10;
+		ans += s[i] - '0';
+	}
+	return ans;
+}
+
+//offset == 0 can be dismissed. need polish
+ins string_to_ins(const string& s){
+	vector<string> ori_ins;
+	string tmp;
+	ori_ins.resize(4);
+	for(int i = 1; i < s.size(); ++i){
+		tmp = "";
+		while(s[i] != ' ' && s[i] != ',' && s[i] != '(' && s[i] != ')') tmp += s[i++];
+		if(tmp.size())	ori_ins.push_back(tmp);
+	}
+	
+	int op;				//操作类型+功能
+	int rs = -1;		//第一个操作数的寄存器地址 (不存在为-1 load/store)
+	int rt = -1;		//第二个操作数的寄存器地址（当第二个数不存在或者为立即数的时候默认为-1）
+	int rd;				//结果寄存器地址（-1代表low和high）
+	int sc;				//位移量/立即数   //??? why use ll
+	int lp;				//label 序号
+	op = in_to_op.at(pair<string,int>(ori_ins[0],ori_ins.size()-1));
+	if(op <= 24){
+		rd = rn_to_rp.at(ori_ins[1]);
+		if(ori_ins[2][0] == '$') rs = rn_to_rp.at(ori_ins[2]);
+		else sc = string_to_int(ori_ins[2]);
+		if(ori_ins.size() == 4){
+			if(ori_ins[3][0] == '$') rt = rn_to_rp.at(ori_ins[3]);
+			else sc = string_to_int(ori_ins[3]);		
+		}
+	}
+	else if(op <= 30){
+		rs = rn_to_rp.at(ori_ins[1]);
+		if(ori_ins[2][0] == '$') rt = rn_to_rp.at(ori_ins[2]);
+		else sc = string_to_int(ori_ins[2]);
+		lp = la_to_r[lb_to_la.at(ori_ins[3])];	//label should already exist
+	}
+	else if(op <= 36){
+		rs = rn_to_rp.at(ori_ins[1]);
+		lp = la_to_r[lb_to_la.at(ori_ins[2])];	//label should already exist
+	}
+	else if(op == 39 || op == 41){
+		rs = rn_to_rp.at(ori_ins[1]);
+	}
+	else if(op <= 41){
+		lp = la_to_r[lb_to_la.at(ori_ins[2])];	//label should already exist
+	}
+	else if(op <= 48){
+		rd = rn_to_rp.at(ori_ins[1]);
+		if(ori_ins.size() == 3){
+			lp = la_to_r[lb_to_la.at(ori_ins[2])];	//label should already exist
+		}
+		else{
+			sc = string_to_int(ori_ins[2]);
+			rs = rn_to_rp.at(ori_ins[3]);
+		}
+	}
+	else if(op = 49){
+		rd = rn_to_rp.at(ori_ins[1]);
+		rs = rn_to_rp.at(ori_ins[2]);
+	}
+	else if(op == 50){
+		rd = rn_to_rp.at(ori_ins[1]);
+		sc = string_to_int(ori_ins[2]);
+	}
+	else if(op == 51){
+		rd = rn_to_rp.at(ori_ins[1]);
+		rs = hi;
+	}
+	else if(op == 52){
+		rd = rn_to_rp.at(ori_ins[1]);
+		rs = lo;
+	}
+	return ins(op,rs,rt,rs,sc,lp);
+}		//process instraction
+
+bool is_data(const string& s){
+	return s[0] == '\t' && s[1] == '.' && s[2] == 'd';
+}
+
+void data_process(const string& s){
+	vector<string> data_ins;
+	string tmp;
+	data_ins.resize(2);
+	for(int i = 2; i < s.size(); ++i){
+		tmp = "";
+		while(s[i] != ' ' && s[i] != ',') tmp += s[i++];
+		if(tmp.size())	data_ins.push_back(tmp);
+	}
+	if(data_ins[0][1] == 'l')			align(string_to_int(data_ins[1]));	//.align
+	else if(data_ins[0][1] == 'y')		byte(string_to_int(data_ins[1]));	//.byte
+	else if(data_ins[0][1] == 'a')		half(string_to_int(data_ins[1]));	//.half
+	else if(data_ins[0][1] == 'o')		word(string_to_int(data_ins[1]));	//.word
+	else if(data_ins[0][1] == 'p')		space(string_to_int(data_ins[1]));	//.space
+	else if(data_ins[0].size() == 5)	ascii_str(data_ins[1]);				//ascii
+	else								asciiz_str(data_ins[1]);			//asciiz
+}
+
+class read_in{
+private:
+	fstream in;
+	vector<string> s;
+public:
+	read_in(const string& ex):in(ex){}
 };
