@@ -4,6 +4,7 @@
 #include<map>
 #include<vector>
 #include<deque>
+#include<stack>
 #include<functional>
 
 const int INF = 0xffffffff;
@@ -23,12 +24,11 @@ class ins;
 
 //global variables for later use
 int reg[34];				//place to store register
-char data[1 << 9];			//place to store data
-int dtp; 					//point to data
+char data_memory[1 << 24];			//place to store data_memory
+int dtp; 					//point to data_memory
 int nxt;					//point to next instraction
 int label_num;				//total num of labels
 vector<ins> instraction;	//place to store instraction
-vector<char> buffer;		//used to store temprary byte
 
 bool mem_occupied;			//mem is occupied
 bool reg_occupied[34];		//reg is occupied
@@ -36,9 +36,9 @@ bool control_hazard;		//control hazard has appeared.
 
 vector<function<pair<int,int>(ll,ll)>> op_to_func;	//mapping from op to function
 map<string,int> rn_to_rp;			//mapping from name of register to place of register
-map<string,int> lb_to_la;			//mapping from 
+map<string,int> lb_to_la;			//mapping from label to int
 map<pair<string,int>,int> in_to_op;			//mapping from name of instraction and num to op;
-map<int,int> la_to_r;				//mapping from label to row of ins
+map<int,int> la_to_r;				//mapping from label to row of ins	
 //map<int,function<int(int,int)>> v0_to_func;			//mapping from v0 to function
 
 //function for preprocess
@@ -53,32 +53,28 @@ void align(int n){
 }						//only for dtp
 
 void ascii_str(const string& s){
-	for(int i = 0; i < s.size(); ++i) data[dtp++] = s[i];
+	for(int i = 0; i < s.size(); ++i) data_memory[dtp++] = s[i];
 }
 
 void asciiz_str(const string& s){
 	ascii_str(s);
-	data[dtp++] = 0;
+	data_memory[dtp++] = 0;
 }
 
-void byte(int n){
-	for(int i = 0; i < n; ++i) data[dtp++] = buffer[i] & CHF;
+void byte(int num){
+	data_memory[dtp++] = num & CHF;
 }
 
-void half(int n){
-	for(int i = 0; i < n; ++i){
-		data[dtp++] = (buffer[i] >> 8) & CHF;
-		data[dtp++] = buffer[i] & CHF;
-	}
+void half(int num){
+	data_memory[dtp++] = (num >> 8) & CHF;
+	data_memory[dtp++] = num & CHF;
 }
 
-void word(int n){
-	for(int i = 0; i < n; ++i){
-		data[dtp++] = (buffer[i] >> 24) & CHF;
-		data[dtp++] = (buffer[i] >> 16) & CHF;
-		data[dtp++] = (buffer[i] >> 8) & CHF;
-		data[dtp++] = buffer[i] & CHF;
-	}
+void word(int num){
+	data_memory[dtp++] = (num >> 24) & CHF;
+	data_memory[dtp++] = (num >> 16) & CHF;
+	data_memory[dtp++] = (num >> 8) & CHF;
+	data_memory[dtp++] = num & CHF;
 }
 
 void space(int n){
@@ -142,7 +138,7 @@ int print_int(int a, int b){
 }
 
 int print_string(int a, int b){
-	while(data[a]) cout << data[a++];
+	while(data_memory[a]) cout << data_memory[a++];
 	return 0;
 }
 
@@ -152,7 +148,7 @@ int get_int(int a, int b){
 }
 
 int get_string(int a, int b){
-	for(int i = 0; i < b; ++i) cin >> data[a + i];
+	for(int i = 0; i < b; ++i) cin >> data_memory[a + i];
 	return 0;
 	//throw something ??
 }
@@ -313,9 +309,9 @@ private:
 	void mem_access(){
 		pa = 0;
 		if(ii.op == 42) pa = ans;
-		if(ii.op == 43) pa += data[ans];
-		if(ii.op == 44) for(int i = 0; i < 2; ++i)	pa += int(data[ans+i]) << (8 - i * 8);
-		if(ii.op == 45) for(int i = 0; i < 4; ++i)	pa += int(data[ans+i]) << (24 - i * 8);
+		if(ii.op == 43) pa += data_memory[ans];
+		if(ii.op == 44) for(int i = 0; i < 2; ++i)	pa += int(data_memory[ans+i]) << (8 - i * 8);
+		if(ii.op == 45) for(int i = 0; i < 4; ++i)	pa += int(data_memory[ans+i]) << (24 - i * 8);
 	}
 	
 	void write_back(){
@@ -339,7 +335,7 @@ public:
 class store : public regulator{
 private:
 	int pa;		//original address / mem_buffer
-	int C;		//store data
+	int C;		//store data_memory
 	int ans;
 	bool prepare(){
 		if(!reg_occupied[ii.rd]){
@@ -364,9 +360,9 @@ private:
 	}
 	
 	void mem_access(){
-		if(ii.op == 46)	data[ans] = C & CHF;
-		if(ii.op == 47)	for(int i = 0; i < 2; ++i) data[ans + i] = ( C >> (8 - i * 8) ) & CHF;
-		if(ii.op == 48)	for(int i = 0; i < 4; ++i) data[ans + i] = ( C >> (24 - i * 8) ) & CHF;		
+		if(ii.op == 46)	data_memory[ans] = C & CHF;
+		if(ii.op == 47)	for(int i = 0; i < 2; ++i) data_memory[ans + i] = ( C >> (8 - i * 8) ) & CHF;
+		if(ii.op == 48)	for(int i = 0; i < 4; ++i) data_memory[ans + i] = ( C >> (24 - i * 8) ) & CHF;		
 	}
 public:
 	store(const ins& ex):regulator(ex){}
@@ -429,9 +425,9 @@ public:
 
 class syscall : public regulator{
 private:
-	int v0_data;		//store the data of $v0
-	int a0_data;		//store the data of $a0
-	int a1_data;		//store the data of $a1
+	int v0_data;		//store the data_memory of $v0
+	int a0_data;		//store the data_memory of $a0
+	int a1_data;		//store the data_memory of $a1
 	string s;
 	
 	bool prepare(){
@@ -451,7 +447,7 @@ private:
 				cout << a0_data;
 				break;
 			case 4:	
-				while(data[a0_data]) cout << data[a0_data++]; 
+				while(data_memory[a0_data]) cout << data_memory[a0_data++]; 
 				cout << '\0';
 				break;
 			case 5:	
@@ -549,7 +545,6 @@ public:
 
 //init
 void op_to_func_init(){
-	op_to_func.resize(42);
 	op_to_func.push_back(function<pair<int,int>(ll,ll)>(add));
 	op_to_func.push_back(function<pair<int,int>(ll,ll)>(sub));
 	op_to_func.push_back(function<pair<int,int>(ll,ll)>(mul));
@@ -724,7 +719,7 @@ void in_to_op_init(){
 	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mfhi",1),51));
 	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("mflo",1),52));
 	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("nop",0),53));
-	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("syacall",0),54));
+	in_to_op.insert(pair<pair<string,int>,int>(pair<string,int>("syscall",0),54));
 }
 //used to read in files
 int string_to_int(const string& s){
@@ -740,19 +735,18 @@ int string_to_int(const string& s){
 ins string_to_ins(const string& s){
 	vector<string> ori_ins;
 	string tmp;
-	ori_ins.resize(4);
-	for(int i = 1; i < s.size(); ++i){
+	for(int i = 0; i < s.size(); ++i){
 		tmp = "";
-		while(s[i] != ' ' && s[i] != ',' && s[i] != '(' && s[i] != ')') tmp += s[i++];
+		while(i < s.size() && s[i] != ' ' && s[i] != ',' && s[i] != '(' && s[i] != ')' && s[i] != '\t') tmp += s[i++];
 		if(tmp.size())	ori_ins.push_back(tmp);
-	}
+	}					//premise : begin with "\t."
 	
 	int op;				//操作类型+功能
 	int rs = -1;		//第一个操作数的寄存器地址 (不存在为-1 load/store)
 	int rt = -1;		//第二个操作数的寄存器地址（当第二个数不存在或者为立即数的时候默认为-1）
-	int rd;				//结果寄存器地址（-1代表low和high）
-	int sc;				//位移量/立即数   //??? why use ll
-	int lp;				//label 序号
+	int rd = -2;				//结果寄存器地址（-1代表low和high）
+	int sc = 0;				//位移量/立即数   //??? why use ll
+	int lp = 0;				//label 序号
 	op = in_to_op.at(pair<string,int>(ori_ins[0],ori_ins.size()-1));
 	if(op <= 24){
 		rd = rn_to_rp.at(ori_ins[1]);
@@ -777,7 +771,7 @@ ins string_to_ins(const string& s){
 		rs = rn_to_rp.at(ori_ins[1]);
 	}
 	else if(op <= 41){
-		lp = la_to_r[lb_to_la.at(ori_ins[2])];	//label should already exist
+		lp = la_to_r[lb_to_la.at(ori_ins[1])];	//label should already exist
 	}
 	else if(op <= 48){
 		rd = rn_to_rp.at(ori_ins[1]);
@@ -789,7 +783,7 @@ ins string_to_ins(const string& s){
 			rs = rn_to_rp.at(ori_ins[3]);
 		}
 	}
-	else if(op = 49){
+	else if(op == 49){
 		rd = rn_to_rp.at(ori_ins[1]);
 		rs = rn_to_rp.at(ori_ins[2]);
 	}
@@ -808,32 +802,93 @@ ins string_to_ins(const string& s){
 	return ins(op,rs,rt,rs,sc,lp);
 }		//process instraction
 
-bool is_data(const string& s){
-	return s[0] == '\t' && s[1] == '.' && s[2] == 'd';
-}
-
 void data_process(const string& s){
 	vector<string> data_ins;
 	string tmp;
-	data_ins.resize(2);
 	for(int i = 2; i < s.size(); ++i){
 		tmp = "";
-		while(s[i] != ' ' && s[i] != ',') tmp += s[i++];
+		while(i < s.size() && s[i] != ' ' && s[i] != ',') tmp += s[i++];  	//premise : begin with "\t."
 		if(tmp.size())	data_ins.push_back(tmp);
 	}
 	if(data_ins[0][1] == 'l')			align(string_to_int(data_ins[1]));	//.align
-	else if(data_ins[0][1] == 'y')		byte(string_to_int(data_ins[1]));	//.byte
-	else if(data_ins[0][1] == 'a')		half(string_to_int(data_ins[1]));	//.half
-	else if(data_ins[0][1] == 'o')		word(string_to_int(data_ins[1]));	//.word
+	else if(data_ins[0][1] == 'y')		
+		for(int i = 1; i < data_ins.size(); ++i)
+			byte(string_to_int(data_ins[i]));								//.byte
+	else if(data_ins[0][1] == 'a')
+		for(int i = 1; i < data_ins.size(); ++i)
+			half(string_to_int(data_ins[i]));								//.half
+	else if(data_ins[0][1] == 'o')
+		for(int i = 1; i < data_ins.size(); ++i)
+			word(string_to_int(data_ins[i]));								//.word
 	else if(data_ins[0][1] == 'p')		space(string_to_int(data_ins[1]));	//.space
 	else if(data_ins[0].size() == 5)	ascii_str(data_ins[1]);				//ascii
 	else								asciiz_str(data_ins[1]);			//asciiz
 }
 
+bool is_data(const string& s){
+	return s[0] == '.' && s[1] == 'd';
+}
+
+bool is_text(const string& s){
+	return s[0] == '.' && s[1] == 't';
+}
+
+bool is_label(const string& s){
+	return s[s.size()-1] == ':';
+}
+
 class read_in{
 private:
 	fstream in;
+	stack<string> label_stack;
 	vector<string> s;
+	string tmp_s;
+	bool status;		// 0 .data_memory  / 1 .text
 public:
 	read_in(const string& ex):in(ex){}
+	void process(){
+		while(getline(in,tmp_s)){
+			int i = 0;
+			while (tmp_s[i] == '\t')	++i;
+			tmp_s = tmp_s.substr(i, tmp_s.size() - i);
+			if (!tmp_s.size())	continue;
+
+			if(is_data(tmp_s)) {
+				status = false;
+				continue;
+			}
+			if(is_text(tmp_s)){
+				status = true;
+				continue;
+			}
+			if(!status)
+				if(is_label(tmp_s)){
+					la_to_r.insert(pair<int,int>(lb_to_la.size(),dtp));
+					lb_to_la.insert(pair<string,int>(tmp_s.substr(0,tmp_s.size()-1),lb_to_la.size()));
+				}
+				else	data_process(tmp_s);
+			else if (is_label(tmp_s)) {
+				label_stack.push(tmp_s.substr(0, tmp_s.size() - 1));
+			}
+				else{
+					while(!label_stack.empty()){
+						la_to_r.insert(pair<int,int>(lb_to_la.size(),s.size()));
+						lb_to_la.insert(pair<string,int>(label_stack.top(),lb_to_la.size()));
+						label_stack.pop();
+					}
+					s.push_back(tmp_s);
+				}
+		}
+		for(int i = 0; i < s.size(); ++i) instraction.push_back(string_to_ins(s[i]));
+	}
 };
+
+int main(){
+	op_to_func_init();
+	rn_to_rp_init();
+	in_to_op_init();
+
+	read_in read("text.txt");
+	read.process();
+
+}
