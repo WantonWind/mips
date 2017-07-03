@@ -19,8 +19,6 @@ typedef long long ll;
 
 using namespace std;
 
-//define
-//#define test
 //declaration
 class ins;
 
@@ -105,15 +103,11 @@ struct ins {
 	ins() {}		//rs rs -1??
 	ins(int op, int rs, int rt, int rd, int sc, int lp) :op(op), rs(rs), rt(rt), rd(rd), sc(sc), lp(lp) {}
 	//copy constructor is implicitly called.
-	bool operator ==(const ins& ex) {
-		return op == ex.op && rs == ex.rs && rt == ex.rt && rd == ex.rd && sc == ex.sc && lp == ex.lp;
-	}
 };
 
 //class for processing in the pipelining. 
 class regulator {
-public:
-	//protected:
+protected:
 	ins ii;
 	int clock;
 public:
@@ -266,9 +260,6 @@ private:
 		}
 	}
 	void write_back() {
-#ifdef test
-		cout << "++" << pa << "++" << '\n';
-#endif
 		reg[ii.rd] = pa;
 		reg_occupied[ii.rd] -= 1;
 	}
@@ -294,9 +285,6 @@ private:
 	bool prepare() {
 		if (!reg_occupied[ii.rd]) {
 			C = reg[ii.rd];
-#ifdef test
-			cout << "**" << C << "**" << '\n';
-#endif
 			if (ii.rs == -1) {
 				pa = ii.lp;
 				return true;
@@ -404,7 +392,6 @@ char to_char(const string& s, int& i) {
 		switch (s[i]) {
 		case 'n':	return '\n';
 		case 't':	return '\t';
-			//		case 'r':	return '\r';
 		case '0':	return '\0';
 		case '\"':	return '\"';
 		default:	throw char();
@@ -485,13 +472,6 @@ public:
 	bool is_controlor() { return true; }
 };
 
-#ifdef test
-void print_reg() {
-	for (int i = 0; i < 34; ++i) cout << reg[i] << ' ';
-	cout << '\n';
-}
-#endif
-
 //pipelining
 class pipeline {
 private:
@@ -526,8 +506,6 @@ private:
 		if (copied && copy_nxt == nxt) {
 			if (!mem_occupied && !control_hazard) {  //delete reg_occupied
 				push_regulator(copy);
-				//		if(nxt == 503)
-				//		cout << "$$" << nxt << '\n';
 				++nxt;
 				copied = false;
 				if ((25 <= copy.op && copy.op <= 41) || copy.op == 54) control_hazard = true;
@@ -539,16 +517,12 @@ private:
 		mem_occupied = false;
 		int rec = true;
 		for (deque<regulator*>::iterator it = que.begin(); it != que.end(); ++it) {
-			//	if ((*it)->stage() == 3) cout << reg[31] << '\n';
-			//	cout << (*it)->clock << ' ';
 			rec = (*it)->console();
 			if (!rec) break;
 			if (rec != -1 && (*it)->stage() == 5) mem_occupied = true;
 		}
-		//	cout << '\n';
 		if (!que.empty() && (*(que.begin()))->stage() >= 6) {
 			pop_regulator();
-			//		cout << reg[30] << '\t' << nxt << '\n';
 			if (que.empty() || (*(--que.end()))->is_controlor() == false) control_hazard = false; //*-- ??
 		}
 		if (rec)	ins_fecth();
@@ -556,37 +530,7 @@ private:
 public:
 	pipeline() :copied(false), copy_nxt(-1) { nxt = la_to_r.at(lb_to_la.at("main")); }
 	void console() {
-		while (nxt < instraction.size() || !que.empty()) {
-			scan();
-		}
-	}
-	void console_test() {
-		while (nxt != instraction.size()) {
-			mem_occupied = false;
-			control_hazard = false;
-			copied = false;
-			/*			cout << nxt << '\n';
-			if(copy.op == 54)
-			cout << "got it" << '\n';
-			if (nxt == 373)
-			cout << "got it" << '\n';*/
-			//	print_reg();
-			ins_fecth();
-			//		push_regulator(copy);
-			deque<regulator*>::iterator it = que.begin();
-			//		if((**it).ii == ins(49,29,-1,31,0,0))
-			//			cout << "!!!" << '\n';
-			for (int i = 1; i < 5; ++i) {
-				//		if(i == 2) cout << reg[31] << '\n';
-				(*it)->console();
-			}
-			//	cout << reg[30] << '\n';
-#ifdef test
-			print_reg();
-			cout << '\n';
-#endif
-			pop_regulator();
-		}
+		while (nxt < instraction.size() || !que.empty()) 	scan();
 	}
 };
 
@@ -787,10 +731,7 @@ ins string_to_ins(const string& s) {
 	int sc = 0;				//位移量/立即数   //??? why use ll
 	int lp = 0;				//label 序号
 	op = in_to_op.at(pair<string, int>(ori_ins[0], ori_ins.size() - 1));
-#ifdef test
-	if (op == 21)
-		cout << "got it" << '\n';
-#endif
+
 	if (op <= 24) {
 		if (op == 8 || op == 18 || op == 7 || op == 17) {
 			rs = rn_to_rp.at(ori_ins[1]);
@@ -852,7 +793,7 @@ ins string_to_ins(const string& s) {
 	return ins(op, rs, rt, rd, sc, lp);
 }		//process instraction
 
-		//function for data process
+//function for data process
 
 void align(int n) {
 	int c = 1 << n;
@@ -989,38 +930,17 @@ public:
 		for (int i = 0; i < s.size(); ++i) instraction.push_back(string_to_ins(s[i]));
 	}
 };
-/*
-int main() {
-	reg[29] = 1 << 25 - 1;
-	op_to_func_init();
-	rn_to_rp_init();
-	in_to_op_init();
 
-	read_in read("text.txt");
-	fin.open("data.in");
-	//	read_in read(argv[1]);
-	//	fin.open(argv[2]);
-	read.process();
-
-	pipeline simulator;
-	//	simulator.console_test();
-	simulator.console();
-	return 0;
-}*/
 int main(int argc, char *argv[]) {
 	reg[29] = 1 << 25 - 1;
 	op_to_func_init();
 	rn_to_rp_init();
 	in_to_op_init();
 
-//	read_in read("text.txt");
-//	fin.open("data.in");
 	read_in read(argv[1]);
-//	fin.open(argv[2]);
 	read.process();
 
 	pipeline simulator;
 	simulator.console();
-//	simulator.console_test();
 	return 0;
 }
