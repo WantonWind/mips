@@ -20,7 +20,7 @@ typedef long long ll;
 using namespace std;
 
 //define
-//#define test
+#define test
 //declaration
 class ins;
 
@@ -30,6 +30,7 @@ char data_memory[1 << 25];			//place to store data_memory
 int dtp; 					//point to data_memory
 int nxt;					//point to next instraction
 int label_num;				//total num of labels
+fstream fin;
 vector<ins> instraction;	//place to store instraction
 
 bool mem_occupied;			//mem is occupied
@@ -42,7 +43,7 @@ map<string, int> lb_to_la;			//mapping from label to int
 map<pair<string, int>, int> in_to_op;			//mapping from name of instraction and num to op;
 map<int, int> la_to_r;				//mapping from label to row of ins	
 
-//function for calculator and controler
+									//function for calculator and controler
 pair<int, int> add(ll a, ll b) {
 	return pair<int, int>((a + b) & INF, 0);
 }
@@ -293,7 +294,7 @@ private:
 		if (!reg_occupied[ii.rd]) {
 			C = reg[ii.rd];
 #ifdef test
-			cout << "**"  << C  << "**" << '\n';
+			cout << "**" << C << "**" << '\n';
 #endif
 			if (ii.rs == -1) {
 				pa = ii.lp;
@@ -378,12 +379,31 @@ public:
 };
 
 //for string process
+int string_to_int(const string& s) {
+	int ans = 0;
+	if (s[0] == '-') {
+		for (int i = 1; i < s.size(); ++i) {
+			ans *= 10;
+			ans += s[i] - '0';
+		}
+		return -ans;
+	}
+	else {
+		for (int i = 0; i < s.size(); ++i) {
+			ans *= 10;
+			ans += s[i] - '0';
+		}
+		return ans;
+	}
+}
+
 char to_char(const string& s, int& i) {
 	if (s[i] == '\\') {
 		++i;
 		switch (s[i]) {
 		case 'n':	return '\n';
 		case 't':	return '\t';
+			//		case 'r':	return '\r';
 		case '0':	return '\0';
 		case '\"':	return '\"';
 		default:	throw char();
@@ -420,17 +440,17 @@ private:
 			break;
 		case 4:
 			while (data_memory[a0_data]) cout << data_memory[a0_data++];
-		//	cout << '\0';				//needed??
 			break;
 		case 5:
-			cin >> v0_data;
+			getline(fin, s);
+			v0_data = string_to_int(s);
 			break;
 		case 8:
-			getline(cin, s);
+			getline(fin, s);
 			i = 0;
 			tmp_s = "";
 			//	if(s.size() >= a1_data) throw int;
-			while (i < s.size())	tmp_s += to_char(s,i), ++i;
+			while (i < s.size())	tmp_s += to_char(s, i), ++i;
 			for (int i = 0; i < tmp_s.size(); ++i) 	data_memory[a0_data + i] = tmp_s[i];
 			data_memory[a0_data + tmp_s.size()] = '\0';
 			v0_data = a0_data;
@@ -540,12 +560,12 @@ public:
 			mem_occupied = false;
 			control_hazard = false;
 			copied = false;
-/*			cout << nxt << '\n';
+			/*			cout << nxt << '\n';
 			if(copy.op == 54)
-				cout << "got it" << '\n';
+			cout << "got it" << '\n';
 			if (nxt == 373)
-				cout << "got it" << '\n';*/
-		//	print_reg();
+			cout << "got it" << '\n';*/
+			//	print_reg();
 			ins_fecth();
 			//		push_regulator(copy);
 			deque<regulator*>::iterator it = que.begin();
@@ -740,24 +760,6 @@ void in_to_op_init() {
 	in_to_op.insert(pair<pair<string, int>, int>(pair<string, int>("nop", 0), 53));
 	in_to_op.insert(pair<pair<string, int>, int>(pair<string, int>("syscall", 0), 54));
 }
-//used to read in files
-int string_to_int(const string& s) {
-	int ans = 0;
-	if (s[0] == '-') {
-		for (int i = 1; i < s.size(); ++i) {
-			ans *= 10;
-			ans += s[i] - '0';
-		}
-		return -ans;
-	}
-	else {
-		for (int i = 0; i < s.size(); ++i) {
-			ans *= 10;
-			ans += s[i] - '0';
-		}
-		return ans;
-	}
-}
 
 //offset == 0 can be dismissed. need polish
 ins string_to_ins(const string& s) {
@@ -841,7 +843,7 @@ ins string_to_ins(const string& s) {
 	return ins(op, rs, rt, rd, sc, lp);
 }		//process instraction
 
-//function for data process
+		//function for data process
 
 void align(int n) {
 	int c = 1 << n;
@@ -855,7 +857,7 @@ void align(int n) {
 }							//only for dtp
 
 void ascii_str(const string& s) {
-	for (int i = 0; i < s.size(); ++i) data_memory[dtp++] = to_char(s,i);
+	for (int i = 0; i < s.size(); ++i) data_memory[dtp++] = to_char(s, i);
 }
 
 void asciiz_str(const string& s) {
@@ -895,7 +897,7 @@ void data_process(const string& s) {
 	if (data_ins[0][1] == 's') {
 		tmp = "";
 		while (s[i] != '\"') ++i; ++i;
-		while (i < s.size()-1) tmp += s[i++];
+		while (i < s.size() - 1) tmp += s[i++];
 		data_ins.push_back(tmp);
 	}
 	else {
@@ -986,10 +988,13 @@ int main() {
 	in_to_op_init();
 
 	read_in read("text.txt");
+	fin.open("data.in");
+	//	read_in read(argv[1]);
+	//	fin.open(argv[2]);
 	read.process();
 
 	pipeline simulator;
-	simulator.console_test();
+	simulator.console();
 
 	return 0;
 }
