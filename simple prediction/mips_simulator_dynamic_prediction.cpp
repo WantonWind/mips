@@ -6,6 +6,7 @@
 #include<deque>
 #include<stack>
 #include<functional>
+#include "reg_class.hpp"
 
 const int INF = 0xffffffff;
 const int SHF = 0x0000ffff;
@@ -21,27 +22,32 @@ using namespace std;
 
 //declaration
 class ins;
+class predictor;
 
 //global variables for later use
-int reg[34];				//place to store register
-char data_memory[1 << 25];			//place to store data_memory
+reg_class reg;				//place to store register
+char data_memory[1 << 24];	//place to store data_memory
 int dtp; 					//point to data_memory
 int nxt;					//point to next instruction
 int label_num;				//total num of labels
-fstream fin;
 vector<ins> instruction;	//place to store instruction
 
 bool mem_occupied;			//mem is occupied
-int reg_occupied[34];		//reg is occupied by n 
-bool control_hazard;		//control hazard has appeared.
+reg_class reg_occupied;		//reg is occupied by n 
 
 vector<function<pair<int, int>(ll, ll)>> op_to_func;	//mapping from op to function
 map<string, int> rn_to_rp;			//mapping from name of register to place of register
 map<string, int> lb_to_la;			//mapping from label to int
 map<pair<string, int>, int> in_to_op;			//mapping from name of instruction and num to op;
 map<int, int> la_to_r;				//mapping from label to row of ins	
+map<int, predictor> r_to_predictor;				//mapping from the controlor row to its BHT
+deque<bool> predict_ans;
+deque<pair<int, int>> nxt_choice;
 
-									//function for calculator and controler
+int r;
+int wrong;
+
+//function for calculator and controler
 pair<int, int> add(ll a, ll b) {
 	return pair<int, int>((a + b) & INF, 0);
 }
@@ -64,7 +70,7 @@ pair<int, int> xxor(ll a, ll b) {
 }
 
 pair<int, int> neg(ll a, ll b) {
-	return pair<int, int>((-a) & INF, 0);
+	return pair<int, int>((-a) & INF, b);
 }
 
 pair<int, int> seq(ll a, ll b) {
@@ -92,18 +98,58 @@ pair<int, int> sne(ll a, ll b) {
 }
 
 //class ins used to store instruction briefly
-struct ins {
-	int op;		//²Ù×÷ÀàÐÍ+¹¦ÄÜ
-	int rs;		//µÚÒ»¸ö²Ù×÷ÊýµÄ¼Ä´æÆ÷µØÖ· (²»´æÔÚÎª-1 load/store)
-	int rt;		//µÚ¶þ¸ö²Ù×÷ÊýµÄ¼Ä´æÆ÷µØÖ·£¨µ±µÚ¶þ¸öÊý²»´æÔÚ»òÕßÎªÁ¢¼´ÊýµÄÊ±ºòÄ¬ÈÏÎª-1£©
-	int rd;		//½á¹û¼Ä´æÆ÷µØÖ·£¨-1´ú±ílowºÍhigh£©
-	int sc;		//Î»ÒÆÁ¿/Á¢¼´Êý   
-	int lp;		//label ÐòºÅ
+class ins {
+public:
+	int op;		//æ“ä½œç±»åž‹+åŠŸèƒ½
+	int rs;		//ç¬¬ä¸€ä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€ (ä¸å­˜åœ¨ä¸º-1 load/store)
+	int rt;		//ç¬¬äºŒä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€ï¼ˆå½“ç¬¬äºŒä¸ªæ•°ä¸å­˜åœ¨æˆ–è€…ä¸ºç«‹å³æ•°çš„æ—¶å€™é»˜è®¤ä¸º-1ï¼‰
+	int rd;		//ç»“æžœå¯„å­˜å™¨åœ°å€ï¼ˆ-1ä»£è¡¨lowå’Œhighï¼‰
+	int sc;		//ä½ç§»é‡/ç«‹å³æ•°   
+	int lp;		//label åºå·
 
 	ins() {}		//rs rs -1??
 	ins(int op, int rs, int rt, int rd, int sc, int lp) :op(op), rs(rs), rt(rt), rd(rd), sc(sc), lp(lp) {}
 	//copy constructor is implicitly called.
 };
+
+//class for dynamic predcition
+class counter {
+	int cnt;
+public:
+	counter() :cnt(0) {};
+	void change(const int& ex) {
+		if (ex == 1) {
+			if (cnt == 3) return;
+			else ++cnt;
+		}
+		else {
+			if (cnt == 0) return;
+			else --cnt;
+		}
+	}
+	bool ans() {
+		if (cnt >= 2)	return true;
+		else return false;
+	}
+};
+
+class predictor {
+	static const int n = 2;
+	int history;
+	counter cnt[1 << n];
+public:
+	predictor() :history(0) {}
+	void modify(const int& ex) {
+		cnt[history].change(ex);
+		history &= ((1 << (n - 1)) - 1);
+		history <<= 1;
+		history |= ex;
+	}
+	bool predict() {
+		if (cnt[history].ans())	return true;
+		else return false;
+	}
+};		//clear pipeline is not its responsibility
 
 //class for processing in the pipelining. 
 class regulator {
@@ -113,10 +159,11 @@ protected:
 public:
 	regulator(ins ex) :ii(ex), clock(2) {}
 	virtual ~regulator() {};
+	int op() { return ii.op; }
 	int stage() { return clock; }
 	virtual int console() = 0;
 	virtual bool is_controlor() = 0;
-};
+};		//ä¸ºä»€ä¹ˆå®šä¹‰ä¸ºçº¯è™šæžæž„å‡½æ•°å°±ä¼šçˆ†ç‚¸ï¼Ÿï¼Ÿ
 
 class calculator : public regulator {
 private:
@@ -183,7 +230,7 @@ private:
 	bool prepare() {
 		calc = op_to_func[ii.op];
 		if (ii.op <= 36) {
-			if (!reg_occupied[ii.rs] && (ii.rt == -1 || !reg_occupied[ii.rt])) {
+			if (!reg_occupied[ii.rs] && (ii.rt <= -1 || !reg_occupied[ii.rt])) {
 				A = reg[ii.rs];
 				if (ii.rt == -2) B = ii.sc;
 				else if (ii.rt == -1) B = 0;
@@ -204,10 +251,26 @@ private:
 		ans = calc(A, B).first;
 	}
 
-	void write_back() {
-		if (ans) {
-			if (ii.op == 40 || ii.op == 41) reg[31] = nxt;
-			nxt = ii.lp;
+	int write_back() {
+		bool jump = ans == predict_ans[0];			//whether you predict right or not
+		r_to_predictor.at(nxt_choice[0].first - 1).modify(jump);
+		if (!jump) {
+			++r;
+			if (ans) {
+				if (ii.op == 40 || ii.op == 41) reg[31] = nxt_choice[0].first;
+				nxt = ii.lp;
+			}
+			else {
+				nxt = nxt_choice[0].first;
+			}
+			return -2;
+		}
+		else {
+			++wrong;
+			if (ans && ii.op == 40 || ii.op == 41) reg[31] = nxt_choice[0].first;
+			nxt_choice.pop_front();
+			predict_ans.pop_front();
+			return true;
 		}
 	}
 public:
@@ -217,7 +280,7 @@ public:
 		if (stage() == 2) suc = prepare();
 		if (stage() == 3) execute();
 		if (stage() == 4) suc = -1;
-		if (stage() == 5) write_back();
+		if (stage() == 5) suc = write_back();
 		if (suc) ++clock;
 		return suc;
 	}
@@ -407,7 +470,7 @@ private:
 	int a1_data;		//store the data_memory of $a1
 	string s;
 
-	int i = 0;
+	int j = 0;
 	string tmp_s;		//for syscall 8
 
 	bool prepare() {
@@ -435,10 +498,10 @@ private:
 			break;
 		case 8:
 			getline(cin, s);
-			i = 0;
+			j = 0;
 			tmp_s = "";
 			//	if(s.size() >= a1_data) throw int;
-			while (i < s.size())	tmp_s += to_char(s, i), ++i;
+			while (j < s.size())	tmp_s += to_char(s, j), ++j;
 			for (int i = 0; i < tmp_s.size(); ++i) 	data_memory[a0_data + i] = tmp_s[i];
 			data_memory[a0_data + tmp_s.size()] = '\0';
 			v0_data = a0_data;
@@ -450,6 +513,7 @@ private:
 		case 10:
 			exit(0);
 		case 17:
+			cout << double(r) / (r + wrong);
 			exit(a0_data);
 		}			//nedd polilsh
 	}
@@ -464,7 +528,7 @@ public:
 		int suc = true;
 		if (stage() == 2) suc = prepare();
 		if (stage() == 3) execute();
-		if (stage() == 4); // need polish
+//		if (stage() == 4); // need polish
 		if (stage() == 5) write_back();
 		if (suc) ++clock;
 		return suc;
@@ -476,9 +540,11 @@ public:
 class pipeline {
 private:
 	deque<regulator*> que;
+	//	deque<int> not_taken;
 	ins copy;
 	int copy_nxt;
 	bool copied;		//whether copy is newest
+	bool cleared;
 
 	void push_regulator(const ins& ex) {
 		regulator* rl;
@@ -497,45 +563,83 @@ private:
 	}		//pop finished instruction
 
 	void ins_fecth() {
-		if (nxt == instruction.size()) return;
+		if (nxt == instruction.size() && !cleared) return;
 		if (!copied || copy_nxt != nxt) {
 			copy = instruction[nxt];  //copy an back-up
 			copy_nxt = nxt;
 			copied = true;
 		}
 		if (copied && copy_nxt == nxt) {
-			if (!mem_occupied && !control_hazard) {  //delete reg_occupied
-				push_regulator(copy);
-				++nxt;
+			if (!mem_occupied) {  //delete reg_occupied
+				if (25 <= copy.op && copy.op <= 41) {	//delete copy.op == 54
+					map<int, predictor>::iterator it = r_to_predictor.find(nxt);
+					if (it == r_to_predictor.end()) {
+						it = r_to_predictor.insert(pair<int, predictor>(nxt, predictor())).first;
+					}
+
+					int nxt_not = nxt + 1, nxt_taken;
+					if (copy.op == 39 || copy.op == 41) {
+						if (!reg_occupied[copy.rs])	nxt_taken = nxt = reg[copy.rs];
+						else return;
+					}
+					else nxt_taken = nxt = copy.lp;
+
+					bool prediction = (*it).second.predict();
+					if (prediction) nxt = nxt_taken;
+					else nxt = nxt_not;
+					predict_ans.push_back(prediction);
+					nxt_choice.push_back(pair<int, int>(nxt_not, nxt_taken));
+				}
+				else ++nxt;		//???
 				copied = false;
-				if ((25 <= copy.op && copy.op <= 41) || copy.op == 54) control_hazard = true;
+				push_regulator(copy);
 			}
 		}
 	}		//instruction fecth stage
 
+	void clear() {
+		reg_occupied.reset();
+		while (!que.empty()) 	pop_regulator();
+		while (!predict_ans.empty()) predict_ans.pop_front();
+		while (!nxt_choice.empty()) nxt_choice.pop_front();
+		copied = false;
+	}		//clear  the pipeline if predict wrongly
+
 	void scan() {
+		cleared = false;
 		mem_occupied = false;
 		int rec = true;
 		for (deque<regulator*>::iterator it = que.begin(); it != que.end(); ++it) {
 			rec = (*it)->console();
 			if (!rec) break;
 			if (rec != -1 && (*it)->stage() == 5) mem_occupied = true;
+			if (rec == -2) {
+				clear();
+				return;
+			}
 		}
 		if (!que.empty() && (*(que.begin()))->stage() >= 6) {
 			pop_regulator();
-			if (que.empty() || (*(--que.end()))->is_controlor() == false) control_hazard = false; //*-- ??
 		}
 		if (rec)	ins_fecth();
 	}
 public:
-	pipeline() :copied(false), copy_nxt(-1) { nxt = la_to_r.at(lb_to_la.at("main")); }
+	pipeline() :copied(false), copy_nxt(-1), cleared(true) { nxt = la_to_r.at(lb_to_la.at("main")); }
 	void console() {
-		while (nxt < instruction.size() || !que.empty()) 	scan();
+		while (nxt < instruction.size() || !que.empty() || cleared) {
+			scan();
+		}
 	}
 };
 
 //init
+void other_init() {
+	instruction.reserve(1000);
+	reg[29] = 1 << 24;
+}
+
 void op_to_func_init() {
+	op_to_func.reserve(42);
 	op_to_func.push_back(function<pair<int, int>(ll, ll)>(add));
 	op_to_func.push_back(function<pair<int, int>(ll, ll)>(sub));
 	op_to_func.push_back(function<pair<int, int>(ll, ll)>(mul));
@@ -717,6 +821,7 @@ void in_to_op_init() {
 //offset == 0 can be dismissed. need polish
 ins string_to_ins(const string& s) {
 	vector<string> ori_ins;
+	ori_ins.reserve(4);
 	string tmp;
 	for (int i = 0; i < s.size(); ++i) {
 		tmp = "";
@@ -724,14 +829,13 @@ ins string_to_ins(const string& s) {
 		if (tmp.size())	ori_ins.push_back(tmp);
 	}					//premise : begin with "\t."
 
-	int op;				//²Ù×÷ÀàÐÍ+¹¦ÄÜ
-	int rs = -1;		//µÚÒ»¸ö²Ù×÷ÊýµÄ¼Ä´æÆ÷µØÖ·
-	int rt = -1;		//µÚ¶þ¸ö²Ù×÷ÊýµÄ¼Ä´æÆ÷µØÖ·£¨µ±µÚ¶þ¸öÊý²»´æÔÚ»òÕßÎªÁ¢¼´ÊýµÄÊ±ºòÄ¬ÈÏÎª-1£©
-	int rd = -1;				//½á¹û¼Ä´æÆ÷µØÖ·£¨-1´ú±ílowºÍhigh£©
-	int sc = 0;				//Î»ÒÆÁ¿/Á¢¼´Êý   //??? why use ll
-	int lp = 0;				//label ÐòºÅ
+	int op;				//æ“ä½œç±»åž‹+åŠŸèƒ½
+	int rs = -1;		//ç¬¬ä¸€ä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€
+	int rt = -1;		//ç¬¬äºŒä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€ï¼ˆå½“ç¬¬äºŒä¸ªæ•°ä¸å­˜åœ¨æˆ–è€…ä¸ºç«‹å³æ•°çš„æ—¶å€™é»˜è®¤ä¸º-1ï¼‰
+	int rd = -1;				//ç»“æžœå¯„å­˜å™¨åœ°å€ï¼ˆ-1ä»£è¡¨lowå’Œhighï¼‰
+	int sc = 0;				//ä½ç§»é‡/ç«‹å³æ•°   //??? why use ll
+	int lp = 0;				//label åºå·
 	op = in_to_op.at(pair<string, int>(ori_ins[0], ori_ins.size() - 1));
-
 	if (op <= 24) {
 		if (op == 8 || op == 18 || op == 7 || op == 17) {
 			rs = rn_to_rp.at(ori_ins[1]);
@@ -793,7 +897,7 @@ ins string_to_ins(const string& s) {
 	return ins(op, rs, rt, rd, sc, lp);
 }		//process instruction
 
-//function for data process
+		//function for data process
 
 void align(int n) {
 	int c = 1 << n;
@@ -834,11 +938,12 @@ void space(int n) {
 
 void data_process(const string& s) {
 	vector<string> data_ins;
+	data_ins.reserve(4);
 	string tmp;
-	int i = 0;
-	for (i = 0; i < s.size(); ++i) {
+	int j = 0;
+	for (j = 0; j < s.size(); ++j) {
 		tmp = "";
-		while (i < s.size() && s[i] != ' ' && s[i] != ',' && s[i] != '\t' && s[i] != '.') tmp += s[i++];  	//premise : begin with "\t."
+		while (j < s.size() && s[j] != ' ' && s[j] != ',' && s[j] != '\t' && s[j] != '.') tmp += s[j++];  	//premise : begin with "\t."
 		if (tmp.size()) {
 			data_ins.push_back(tmp);
 			break;
@@ -846,14 +951,14 @@ void data_process(const string& s) {
 	}
 	if (data_ins[0][1] == 's') {
 		tmp = "";
-		while (s[i] != '\"') ++i; ++i;
-		while (i < s.size() - 1) tmp += s[i++];
+		while (s[j] != '\"') ++j; ++j;
+		while (j < s.size() - 1) tmp += s[j++];
 		data_ins.push_back(tmp);
 	}
 	else {
-		for (; i < s.size(); ++i) {
+		for (; j < s.size(); ++j) {
 			tmp = "";
-			while (i < s.size() && s[i] != ' ' && s[i] != ',' && s[i] != '\t')	tmp += s[i++];
+			while (j < s.size() && s[j] != ' ' && s[j] != ',' && s[j] != '\t')	tmp += s[j++];
 			if (tmp.size()) data_ins.push_back(tmp);
 		}
 	}
@@ -931,16 +1036,20 @@ public:
 	}
 };
 
-int main(int argc, char *argv[]) {
-	reg[29] = 1 << 25 - 1;
+int main(int argc,char** argv) {
+	other_init();
 	op_to_func_init();
 	rn_to_rp_init();
 	in_to_op_init();
 
 	read_in read(argv[1]);
+//	fin.open("data.in");
+	//	read_in read(argv[1]);
+	//	fin.open(argv[2]);
 	read.process();
 
 	pipeline simulator;
 	simulator.console();
+
 	return 0;
 }
