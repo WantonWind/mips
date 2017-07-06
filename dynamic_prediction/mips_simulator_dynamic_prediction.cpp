@@ -116,7 +116,7 @@ public:
 class counter {
 	int cnt;
 public:
-	counter() :cnt(0) {};
+	counter() :cnt(3) {};
 	void change(const int& ex) {
 		if (ex == 1) {
 			if (cnt == 3) return;
@@ -134,7 +134,7 @@ public:
 };
 
 class predictor {
-	static const int n = 2;
+	static const int n = 4;
 	int history;
 	counter cnt[1 << n];
 public:
@@ -253,9 +253,9 @@ private:
 
 	int write_back() {
 		bool jump = ans == predict_ans[0];			//whether you predict right or not
-		r_to_predictor.at(nxt_choice[0].first - 1).modify(jump);
+		r_to_predictor.at(nxt_choice[0].first - 1).modify(ans);
 		if (!jump) {
-			++r;
+			++wrong;
 			if (ans) {
 				if (ii.op == 40 || ii.op == 41) reg[31] = nxt_choice[0].first;
 				nxt = ii.lp;
@@ -266,7 +266,7 @@ private:
 			return -2;
 		}
 		else {
-			++wrong;
+			++r;
 			if (ans && ii.op == 40 || ii.op == 41) reg[31] = nxt_choice[0].first;
 			nxt_choice.pop_front();
 			predict_ans.pop_front();
@@ -513,7 +513,6 @@ private:
 		case 10:
 			exit(0);
 		case 17:
-			cout << double(r) / (r + wrong);
 			exit(a0_data);
 		}			//nedd polilsh
 	}
