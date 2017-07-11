@@ -6,6 +6,10 @@
 #include<deque>
 #include<stack>
 #include<functional>
+#include<mutex>
+#include<thread>
+#include<condition_variable>
+#include<atomic>
 
 const int INF = 0xffffffff;
 const int SHF = 0x0000ffff;
@@ -23,17 +27,16 @@ using namespace std;
 class ins;
 
 //global variables for later use
-int reg[34];				//place to store register
+atomic<int> reg[34];				//place to store register
 char data_memory[1 << 25];			//place to store data_memory
 int dtp; 					//point to data_memory
 int nxt;					//point to next instruction
 int label_num;				//total num of labels
-fstream fin;
 vector<ins> instruction;	//place to store instruction
 
-bool mem_occupied;			//mem is occupied
-int reg_occupied[34];		//reg is occupied by n 
-bool control_hazard;		//control hazard has appeared.
+							//atomic<bool> mem_occupied;			//mem is occupied
+atomic<int> reg_occupied[34];				//reg is occupied by n 
+atomic<bool> control_hazard;		//control hazard has appeared.
 
 vector<function<pair<int, int>(ll, ll)>> op_to_func;	//mapping from op to function
 map<string, int> rn_to_rp;			//mapping from name of register to place of register
@@ -92,13 +95,14 @@ pair<int, int> sne(ll a, ll b) {
 }
 
 //class ins used to store instruction briefly
-struct ins {
-	int op;		//²Ù×÷ÀàĞÍ+¹¦ÄÜ
-	int rs;		//µÚÒ»¸ö²Ù×÷ÊıµÄ¼Ä´æÆ÷µØÖ· (²»´æÔÚÎª-1 load/store)
-	int rt;		//µÚ¶ş¸ö²Ù×÷ÊıµÄ¼Ä´æÆ÷µØÖ·£¨µ±µÚ¶ş¸öÊı²»´æÔÚ»òÕßÎªÁ¢¼´ÊıµÄÊ±ºòÄ¬ÈÏÎª-1£©
-	int rd;		//½á¹û¼Ä´æÆ÷µØÖ·£¨-1´ú±ílowºÍhigh£©
-	int sc;		//Î»ÒÆÁ¿/Á¢¼´Êı   
-	int lp;		//label ĞòºÅ
+class ins {
+public:
+	int op;		//æ“ä½œç±»å‹+åŠŸèƒ½
+	int rs;		//ç¬¬ä¸€ä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€ (ä¸å­˜åœ¨ä¸º-1 load/store)
+	int rt;		//ç¬¬äºŒä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€ï¼ˆå½“ç¬¬äºŒä¸ªæ•°ä¸å­˜åœ¨æˆ–è€…ä¸ºç«‹å³æ•°çš„æ—¶å€™é»˜è®¤ä¸º-1ï¼‰
+	int rd;		//ç»“æœå¯„å­˜å™¨åœ°å€ï¼ˆ-1ä»£è¡¨lowå’Œhighï¼‰
+	int sc;		//ä½ç§»é‡/ç«‹å³æ•°   
+	int lp;		//label åºå·
 
 	ins() {}		//rs rs -1??
 	ins(int op, int rs, int rt, int rd, int sc, int lp) :op(op), rs(rs), rt(rt), rd(rd), sc(sc), lp(lp) {}
@@ -183,7 +187,7 @@ private:
 	bool prepare() {
 		calc = op_to_func[ii.op];
 		if (ii.op <= 36) {
-			if (!reg_occupied[ii.rs] && (ii.rt == -1 || !reg_occupied[ii.rt])) {
+			if (!reg_occupied[ii.rs] && (ii.rt <= -1 || !reg_occupied[ii.rt])) {
 				A = reg[ii.rs];
 				if (ii.rt == -2) B = ii.sc;
 				else if (ii.rt == -1) B = 0;
@@ -464,7 +468,7 @@ public:
 		int suc = true;
 		if (stage() == 2) suc = prepare();
 		if (stage() == 3) execute();
-		if (stage() == 4); // need polish
+		//	if (stage() == 4); // need polish
 		if (stage() == 5) write_back();
 		if (suc) ++clock;
 		return suc;
@@ -472,14 +476,13 @@ public:
 	bool is_controlor() { return true; }
 };
 
-//pipelining
 class pipeline {
 private:
-	deque<regulator*> que;
-	ins copy;
-	int copy_nxt;
-	bool copied;		//whether copy is newest
-
+	mutex mem_operation;
+	atomic<regulator*> regulator_buffer[4];
+	atomic<int> regulator_prepared[4];	// 2è¡¨ç¤ºæ‰€æœ‰çš„éƒ½å·²ç»åšå®Œäº†,æœ€åä¸€ä¸ªç”¨äºå…¨å±€åˆ¤æ–­
+										//0->prepare 1->execution 2->mem_access 3->write_back
+										//0->not prepared yet 1->prepared well 2->finished
 	void push_regulator(const ins& ex) {
 		regulator* rl;
 		if (ex.op <= 24) rl = new calculator(ex);
@@ -489,48 +492,112 @@ private:
 		else if (ex.op <= 52) rl = new mover(ex);
 		else if (ex.op == 53) rl = new nop(ex);
 		else rl = new syscall(ex);
-		que.push_back(rl);
+		regulator_buffer[0] = rl;
 	}		//process this ins
-	void pop_regulator() {
-		delete que.front();
-		que.pop_front();
-	}		//pop finished instruction
-
-	void ins_fecth() {
-		if (nxt == instruction.size()) return;
-		if (!copied || copy_nxt != nxt) {
-			copy = instruction[nxt];  //copy an back-up
-			copy_nxt = nxt;
-			copied = true;
-		}
-		if (copied && copy_nxt == nxt) {
-			if (!mem_occupied && !control_hazard) {  //delete reg_occupied
-				push_regulator(copy);
-				++nxt;
-				copied = false;
-				if ((25 <= copy.op && copy.op <= 41) || copy.op == 54) control_hazard = true;
+	void ins_fetch() {
+		while (true) {
+			while (regulator_prepared[0])	this_thread::yield();
+			while (control_hazard)	this_thread::yield();
+			if (nxt == instruction.size())	break;
+			ins copy;
+			{
+				lock_guard<mutex> lck(mem_operation);
+				copy = instruction[nxt];
+			}
+			push_regulator(copy);
+			++nxt;
+			regulator_prepared[0] = true;
+			if ((25 <= copy.op && copy.op <= 41) || copy.op == 54) {
+				control_hazard = true;
 			}
 		}
-	}		//instruction fecth stage
+		while (regulator_prepared[0])	this_thread::yield();
+		regulator_prepared[0] = 2;	//all ins have been already fecthed. 
+	}
 
-	void scan() {
-		mem_occupied = false;
-		int rec = true;
-		for (deque<regulator*>::iterator it = que.begin(); it != que.end(); ++it) {
-			rec = (*it)->console();
-			if (!rec) break;
-			if (rec != -1 && (*it)->stage() == 5) mem_occupied = true;
+	void prepare() {
+		while (true) {
+			while (!regulator_prepared[0])	this_thread::yield();
+			if (regulator_prepared[0] == 2)	break;		//needed?
+			regulator* tmp = regulator_buffer[0];
+			regulator_buffer[0] = nullptr;
+			regulator_prepared[0] = false;
+			while (!tmp->console())	this_thread::yield();
+			while (regulator_prepared[1])	this_thread::yield();
+			regulator_buffer[1] = tmp;
+			regulator_prepared[1] = true;		//ä¿è¯è¾“å…¥çš„è¿ç»­æ€§??
 		}
-		if (!que.empty() && (*(que.begin()))->stage() >= 6) {
-			pop_regulator();
-			if (que.empty() || (*(--que.end()))->is_controlor() == false) control_hazard = false; //*-- ??
+		while (regulator_prepared[1]) this_thread::yield();
+		regulator_prepared[1] = 2;
+	}
+
+	//0->prepare 1->execution 2->mem_access 3->write_back
+	void execution() {
+		while (true) {
+			while (!regulator_prepared[1])	this_thread::yield();
+			if (regulator_prepared[1] == 2)	break;
+			regulator* tmp = regulator_buffer[1];
+			regulator_buffer[1] = nullptr;
+			regulator_prepared[1] = false;
+			tmp->console();
+			while (regulator_prepared[2])	this_thread::yield();
+			regulator_buffer[2] = tmp;
+			regulator_prepared[2] = true;		//ä¿è¯è¾“å…¥çš„è¿ç»­æ€§??
 		}
-		if (rec)	ins_fecth();
+		while (regulator_prepared[2]) this_thread::yield();
+		regulator_prepared[2] = 2;
+	}
+
+	void mem_access() {
+		while (true) {
+			while (!regulator_prepared[2])	this_thread::yield();
+			if (regulator_prepared[2] == 2)	break;
+			regulator* tmp = regulator_buffer[2];
+			regulator_buffer[2] = nullptr;
+			regulator_prepared[2] = false;
+			{
+				lock_guard<mutex> lck(mem_operation);
+				tmp->console();					//maybe need polish
+			}
+			while (regulator_prepared[3])	this_thread::yield();
+			regulator_buffer[3] = tmp;
+			regulator_prepared[3] = true;		//ä¿è¯è¾“å…¥çš„è¿ç»­æ€§??
+		}
+		while (regulator_prepared[3]) this_thread::yield();
+		regulator_prepared[3] = 2;
+	}
+
+	void write_back() {
+		while (true) {
+			while (!regulator_prepared[3])	this_thread::yield();
+			if (regulator_prepared[3] == 2)	break;
+			regulator* tmp = regulator_buffer[3];
+			tmp->console();
+			regulator_buffer[3] = nullptr;
+			regulator_prepared[3] = false;
+			if (tmp->is_controlor()) {
+				while (!control_hazard) this_thread::yield();
+				control_hazard = false;
+			}
+			delete tmp;
+		}
 	}
 public:
-	pipeline() :copied(false), copy_nxt(-1) { nxt = la_to_r.at(lb_to_la.at("main")); }
+	pipeline() {
+		for (int i = 0; i < 4; ++i) {
+			regulator_buffer[i] = nullptr;
+			regulator_prepared[i] = 0;
+		}
+		nxt = la_to_r.at(lb_to_la.at("main"));
+	}
 	void console() {
-		while (nxt < instruction.size() || !que.empty()) 	scan();
+		thread module[5];
+		module[0] = thread(mem_fn(&pipeline::ins_fetch), this);
+		module[1] = thread(mem_fn(&pipeline::prepare), this);
+		module[2] = thread(mem_fn(&pipeline::execution), this);
+		module[3] = thread(mem_fn(&pipeline::mem_access), this);
+		module[4] = thread(mem_fn(&pipeline::write_back), this);
+		for (int i = 0; i < 5; ++i)	module[i].join();
 	}
 };
 
@@ -724,12 +791,12 @@ ins string_to_ins(const string& s) {
 		if (tmp.size())	ori_ins.push_back(tmp);
 	}					//premise : begin with "\t."
 
-	int op;				//²Ù×÷ÀàĞÍ+¹¦ÄÜ
-	int rs = -1;		//µÚÒ»¸ö²Ù×÷ÊıµÄ¼Ä´æÆ÷µØÖ·
-	int rt = -1;		//µÚ¶ş¸ö²Ù×÷ÊıµÄ¼Ä´æÆ÷µØÖ·£¨µ±µÚ¶ş¸öÊı²»´æÔÚ»òÕßÎªÁ¢¼´ÊıµÄÊ±ºòÄ¬ÈÏÎª-1£©
-	int rd = -1;				//½á¹û¼Ä´æÆ÷µØÖ·£¨-1´ú±ílowºÍhigh£©
-	int sc = 0;				//Î»ÒÆÁ¿/Á¢¼´Êı   //??? why use ll
-	int lp = 0;				//label ĞòºÅ
+	int op;				//æ“ä½œç±»å‹+åŠŸèƒ½
+	int rs = -1;		//ç¬¬ä¸€ä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€
+	int rt = -1;		//ç¬¬äºŒä¸ªæ“ä½œæ•°çš„å¯„å­˜å™¨åœ°å€ï¼ˆå½“ç¬¬äºŒä¸ªæ•°ä¸å­˜åœ¨æˆ–è€…ä¸ºç«‹å³æ•°çš„æ—¶å€™é»˜è®¤ä¸º-1ï¼‰
+	int rd = -1;				//ç»“æœå¯„å­˜å™¨åœ°å€ï¼ˆ-1ä»£è¡¨lowå’Œhighï¼‰
+	int sc = 0;				//ä½ç§»é‡/ç«‹å³æ•°   //??? why use ll
+	int lp = 0;				//label åºå·
 	op = in_to_op.at(pair<string, int>(ori_ins[0], ori_ins.size() - 1));
 
 	if (op <= 24) {
@@ -793,7 +860,7 @@ ins string_to_ins(const string& s) {
 	return ins(op, rs, rt, rd, sc, lp);
 }		//process instruction
 
-//function for data process
+		//function for data process
 
 void align(int n) {
 	int c = 1 << n;
@@ -931,8 +998,8 @@ public:
 	}
 };
 
-int main(int argc, char *argv[]) {
-	reg[29] = 1 << 25 - 1;
+int main(int argc,char** argv) {
+	reg[29] = 1 << 24;
 	op_to_func_init();
 	rn_to_rp_init();
 	in_to_op_init();
@@ -942,5 +1009,6 @@ int main(int argc, char *argv[]) {
 
 	pipeline simulator;
 	simulator.console();
+
 	return 0;
 }
